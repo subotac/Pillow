@@ -184,6 +184,8 @@ class GaussianBlur(MultibandFilter):
     approximates a Gaussian kernel. For details on accuracy see
     <https://www.mia.uni-saarland.de/Publications/gwosdek-ssvm11.pdf>
 
+    Supports 16-bit grayscale images in addition to 8-bit grayscale and color images.
+
     :param radius: Standard deviation of the Gaussian kernel. Either a sequence of two
                    numbers for x and y, or a single number for both.
     """
@@ -208,6 +210,8 @@ class BoxBlur(MultibandFilter):
     Supports float radius of arbitrary size. Uses an optimized implementation
     which runs in linear time relative to the size of the image
     for any radius value.
+
+    Supports 16-bit grayscale images in addition to 8-bit grayscale and color images.
 
     :param radius: Size of the box in a direction. Either a sequence of two numbers for
                    x and y, or a single number for both.

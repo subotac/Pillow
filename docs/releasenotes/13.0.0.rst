@@ -107,6 +107,13 @@ TODO
 API additions
 =============
 
+16-bit grayscale blur filters
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:py:class:`~PIL.ImageFilter.BoxBlur` and :py:class:`~PIL.ImageFilter.GaussianBlur`
+now support ``I;16``, ``I;16L``, ``I;16B`` and ``I;16N`` images, preserving their
+16-bit range and byte order.
+
 New resizing filters
 ^^^^^^^^^^^^^^^^^^^^
 

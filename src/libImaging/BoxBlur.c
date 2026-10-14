@@ -165,6 +165,46 @@ void static inline ImagingLineBoxBlur8(
 #undef SAVE
 }
 
+void static inline ImagingLineBoxBlur16(
+    UINT8 *lineOut,
+    const UINT8 *lineIn,
+    int lastx,
+    int radius,
+    int edgeA,
+    UINT32 ww,
+    UINT32 fw,
+    int bigendian
+) {
+    int x, left, right, farRight;
+    uint64_t acc, bulk;
+    UINT16 value;
+
+#define PIXEL(x)                                            \
+    (((UINT32)lineIn[(x) * 2 + (bigendian ? 0 : 1)] << 8) | \
+     lineIn[(x) * 2 + (bigendian ? 1 : 0)])
+
+    /* The weighted sum needs 40 bits for a full-range 16-bit pixel. */
+    acc = (uint64_t)PIXEL(0) * (radius + 1);
+    for (x = 0; x < edgeA - 1; x++) {
+        acc += PIXEL(x);
+    }
+    acc += (uint64_t)PIXEL(lastx) * (radius - edgeA + 1);
+
+    for (x = 0; x <= lastx; x++) {
+        left = x <= radius ? 0 : x - radius - 1;
+        right = radius > lastx - x ? lastx : x + radius;
+        farRight = radius >= lastx - x ? lastx : x + radius + 1;
+        acc -= PIXEL(left);
+        acc += PIXEL(right);
+        bulk = acc * ww + (uint64_t)(PIXEL(left) + PIXEL(farRight)) * fw;
+        value = (UINT16)((bulk + ((uint64_t)1 << 23)) >> 24);
+        lineOut[x * 2 + (bigendian ? 0 : 1)] = (UINT8)(value >> 8);
+        lineOut[x * 2 + (bigendian ? 1 : 0)] = (UINT8)value;
+    }
+
+#undef PIXEL
+}
+
 Imaging
 ImagingHorizontalBoxBlur(Imaging imOut, Imaging imIn, float floatRadius) {
     ImagingSectionCookie cookie;
@@ -185,7 +225,27 @@ ImagingHorizontalBoxBlur(Imaging imOut, Imaging imIn, float floatRadius) {
 
     ImagingSectionEnter(&cookie);
 
-    if (imIn->image8) {
+    if (imIn->type == IMAGING_TYPE_I16) {
+        int bigendian = imIn->mode == IMAGING_MODE_I_16B;
+#ifdef WORDS_BIGENDIAN
+        bigendian |= imIn->mode == IMAGING_MODE_I_16N;
+#endif
+        for (y = 0; y < imIn->ysize; y++) {
+            ImagingLineBoxBlur16(
+                imIn == imOut ? (UINT8 *)lineOut : (UINT8 *)imOut->image[y],
+                (UINT8 *)imIn->image[y],
+                imIn->xsize - 1,
+                radius,
+                edgeA,
+                ww,
+                fw,
+                bigendian
+            );
+            if (imIn == imOut) {
+                memcpy(imOut->image[y], lineOut, imIn->xsize * 2);
+            }
+        }
+    } else if (imIn->image8) {
         for (y = 0; y < imIn->ysize; y++) {
             ImagingLineBoxBlur8(
                 (imIn == imOut ? (UINT8 *)lineOut : imOut->image8[y]),
@@ -254,14 +314,15 @@ ImagingBoxBlur(Imaging imOut, Imaging imIn, float xradius, float yradius, int n)
         return ImagingError_Mismatch();
     }
 
-    if (imIn->type != IMAGING_TYPE_UINT8) {
+    if (imIn->type != IMAGING_TYPE_UINT8 && imIn->type != IMAGING_TYPE_I16) {
         return ImagingError_ModeError();
     }
 
-    if (imIn->mode != IMAGING_MODE_RGB && imIn->mode != IMAGING_MODE_RGBA &&
-        imIn->mode != IMAGING_MODE_RGBa && imIn->mode != IMAGING_MODE_RGBX &&
-        imIn->mode != IMAGING_MODE_CMYK && imIn->mode != IMAGING_MODE_L &&
-        imIn->mode != IMAGING_MODE_LA && imIn->mode != IMAGING_MODE_La) {
+    if (imIn->type != IMAGING_TYPE_I16 && imIn->mode != IMAGING_MODE_RGB &&
+        imIn->mode != IMAGING_MODE_RGBA && imIn->mode != IMAGING_MODE_RGBa &&
+        imIn->mode != IMAGING_MODE_RGBX && imIn->mode != IMAGING_MODE_CMYK &&
+        imIn->mode != IMAGING_MODE_L && imIn->mode != IMAGING_MODE_LA &&
+        imIn->mode != IMAGING_MODE_La) {
         return ImagingError_ModeError();
     }
 

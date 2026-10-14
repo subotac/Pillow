@@ -78,6 +78,75 @@ def test_zero_dimension(size: tuple[int, int]) -> None:
     assert box_blur(Image.new("L", size)).size == size
 
 
+@pytest.mark.parametrize("mode", ("I;16", "I;16L", "I;16B", "I;16N"))
+@pytest.mark.parametrize("radius", (0, 0.5, 1, 1.5, 4, 10))
+def test_16bit_box_blur(mode: str, radius: float) -> None:
+    values = [0, 1, 12345, 32768, 65535]
+    im = Image.new(mode, (len(values), 1))
+    for x, value in enumerate(values):
+        im.putpixel((x, 0), value)
+
+    # Reference the normalized box kernel directly, with edge extension.
+    integer_radius = int(radius)
+    fraction = radius - integer_radius
+    expected = []
+    for x in range(len(values)):
+
+        def pixel(offset: int) -> int:
+            return values[min(max(x + offset, 0), len(values) - 1)]
+
+        total: float = sum(
+            pixel(offset) for offset in range(-integer_radius, integer_radius + 1)
+        )
+        total += fraction * (pixel(-integer_radius - 1) + pixel(integer_radius + 1))
+        expected.append(int(total / (2 * radius + 1) + 0.5))
+
+    blurred = im.filter(ImageFilter.BoxBlur((radius, 0)))
+    assert blurred.mode == mode
+    assert blurred.size == im.size
+    assert list(im.get_flattened_data()) == values
+    assert_image(blurred, [expected], delta=1)
+
+
+@pytest.mark.parametrize("mode", ("I;16", "I;16L", "I;16B", "I;16N"))
+@pytest.mark.parametrize("size", ((1, 1), (1, 7), (7, 1), (3, 5), (0, 1), (1, 0)))
+@pytest.mark.parametrize("radius", (0, 1.5, 10, 100000))
+def test_16bit_blur_constant(mode: str, size: tuple[int, int], radius: float) -> None:
+    im = Image.new(mode, size, 65535)
+    for filter_to_apply in (
+        ImageFilter.BoxBlur(radius),
+        ImageFilter.GaussianBlur(radius),
+    ):
+        blurred = im.filter(filter_to_apply)
+        assert blurred.mode == mode
+        assert blurred.size == size
+        assert all(value == 65535 for value in blurred.get_flattened_data())
+
+
+@pytest.mark.parametrize("mode", ("I;16", "I;16L", "I;16B", "I;16N"))
+@pytest.mark.parametrize("radius", ((0, 1.5), (1.5, 0), (1.5, 4), (10, 1.5)))
+def test_16bit_gaussian_blur(mode: str, radius: tuple[float, float]) -> None:
+    im = Image.new(mode, (7, 5))
+    for y in range(im.height):
+        for x in range(im.width):
+            im.putpixel((x, y), (x * 8191 + y * 3571) % 65536)
+
+    blurred = im.filter(ImageFilter.GaussianBlur(radius))
+    # Swapping axes also swaps the radii, including in-place intermediate passes.
+    transposed = (
+        im.transpose(Image.Transpose.TRANSPOSE)
+        .filter(ImageFilter.GaussianBlur(radius[::-1]))
+        .transpose(Image.Transpose.TRANSPOSE)
+    )
+    assert blurred.mode == mode
+    assert blurred.size == im.size
+    assert list(blurred.get_flattened_data()) == list(transposed.get_flattened_data())
+    assert all(
+        isinstance(value, int) and 0 <= value <= 65535
+        for value in blurred.get_flattened_data()
+    )
+
+
 def test_radius_0() -> None:
     assert_blur(
         sample,
